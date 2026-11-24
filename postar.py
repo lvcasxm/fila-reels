@@ -278,16 +278,62 @@ def chamar(metodo, url, params=None, tok=None, corpo=None, cabecalhos=None, esqu
         raise Erro(f"sem conexão com a Meta: {e.reason}") from None
 
 
-def contas_disponiveis():
-    """canal -> {usuario, ig, token, [pagina, token_pagina]} para os canais que dá para postar."""
+def conta_unificada(s, tok):
+    """Token EAA… do "login unificado" (Facebook Login for Business): fala com graph.facebook.com
+    e não tem /me de Instagram; a conta vem de IG_ID_<SIGLA> ou das contas que o token alcança."""
+    G = HOSTS["facebook"]
+    ig = os.environ.get(f"IG_ID_{s.upper()}", "").strip()
+    if ig:
+        r = chamar("GET", f"{G}/{ig}", {"fields": "id,username"}, tok=tok)
+        return {"usuario": r["username"].lower(), "ig": r["id"], "token": tok, "host": G}
+    achadas, tentativas = {}, []
+    for rota, campos, extrair in (
+            ("me/assigned_instagram_accounts", "id,username", lambda d: [d]),
+            ("me/instagram_accounts", "id,username", lambda d: [d]),
+            ("me/accounts", "instagram_business_account{id,username}",
+             lambda d: [d["instagram_business_account"]] if d.get("instagram_business_account") else [])):
+        try:
+            r = chamar("GET", f"{G}/{rota}", {"fields": campos, "limit": 100}, tok=tok)
+        except Erro as e:
+            tentativas.append(f"/{rota}: {e}")
+            continue
+        for d in r.get("data", []):
+            for c in extrair(d):
+                if c.get("id") and c.get("username"):
+                    achadas[c["id"]] = c["username"].lower()
+        if achadas:
+            break
+        tentativas.append(f"/{rota}: nenhuma conta")
+    if len(achadas) == 1:
+        ig, usuario = next(iter(achadas.items()))
+        return {"usuario": usuario, "ig": ig, "token": tok, "host": G}
+    if achadas:
+        lista = ", ".join(f"@{u} ({i})" for i, u in achadas.items())
+        raise Erro(f"o token alcança mais de uma conta ({lista}); defina IG_ID_{s.upper()} com o id certo")
+    raise Erro("o token não mostrou nenhuma conta do Instagram; " + "; ".join(tentativas))
+
+
+def contas_disponiveis(avisar=None):
+    """canal -> {usuario, ig, token, host, [pagina, token_pagina]} para os canais que dá para postar.
+    No caminho instagram, um token com problema não derruba os outros: o erro vai para avisar(canal, erro)."""
     G = HOSTS[CFG["via"]]
     out = {}
     if CFG["via"] == "instagram":
         for s, canal in CANAIS.items():
             tok = os.environ.get(f"IG_TOKEN_{s.upper()}", "").strip()
-            if tok:
-                me = chamar("GET", f"{G}/me", {"fields": "user_id,username"}, tok=tok)
-                out[canal] = {"usuario": me["username"].lower(), "ig": me.get("user_id") or me["id"], "token": tok}
+            if not tok:
+                continue
+            try:
+                if tok.startswith("EAA"):
+                    out[canal] = conta_unificada(s, tok)
+                else:
+                    me = chamar("GET", f"{G}/me", {"fields": "user_id,username"}, tok=tok)
+                    out[canal] = {"usuario": me["username"].lower(), "ig": me.get("user_id") or me["id"],
+                                  "token": tok, "host": G}
+            except Erro as e:
+                if not avisar:
+                    raise
+                avisar(canal, e)
         return out
     tok = os.environ.get("META_TOKEN", "").strip()
     if not tok:
@@ -298,7 +344,7 @@ def contas_disponiveis():
     for p in r.get("data", []):
         ig = p.get("instagram_business_account")
         if ig:
-            alcance[ig["username"].lower()] = {"usuario": ig["username"].lower(), "ig": ig["id"], "token": tok,
+            alcance[ig["username"].lower()] = {"usuario": ig["username"].lower(), "ig": ig["id"], "token": tok, "host": G,
                                                "pagina": p["id"], "nome_pagina": p["name"],
                                                "token_pagina": p.get("access_token")}
     arq = caminho("contas.json")
@@ -335,7 +381,7 @@ def url_publica(p, nome):
 
 
 def publicar_item(p, conta):
-    G, chave, tok = HOSTS[CFG["via"]], p["chave"], conta["token"]
+    G, chave, tok = conta.get("host") or HOSTS[CFG["via"]], p["chave"], conta["token"]
 
     def api(metodo, rota, params=None):
         return chamar(metodo, f"{G}/{rota}", params, tok=tok)
@@ -484,12 +530,28 @@ def cmd_publicar(a):
         for prob in p["problemas"]:
             print(f"    !! {prob}")
         print()
+    falhas = {}
+
+    def avisar(canal, e):
+        falhas[canal] = e
+        print(f"conta {sigla(canal)}: ERRO no token: {e}")
+
     if not a.de_verdade:
+        # Simulação também confere os tokens (só leitura: nada é criado nem postado).
+        if CFG["via"] == "instagram":
+            contas = contas_disponiveis(avisar)
+            for canal in sorted({p["canal"] for p in fila}):
+                c = contas.get(canal)
+                if c:
+                    print(f"conta {sigla(canal)}: @{c['usuario']} (id {c['ig']}, via {c['host'].split('/')[2]}) OK")
+                elif canal not in falhas:
+                    print(f"conta {sigla(canal)}: sem token (IG_TOKEN_{sigla(canal).upper()})")
+            erros += len(falhas)
         sys.exit(1 if erros else 0)
     if CFG["via"] == "instagram" and not CFG["midia_url"]:
         raise Erro("o caminho instagram precisa de --midia-url (o endereço público dos vídeos)")
 
-    contas = contas_disponiveis()
+    contas = contas_disponiveis(avisar if CFG["via"] == "instagram" else None)
     feitos = []
     for p in fila:
         print(f"■ {p['chave']}", flush=True)

@@ -54,6 +54,11 @@ jobs:
           IG_TOKEN_AI: ${{ secrets.IG_TOKEN_AI }}
           IG_TOKEN_SD: ${{ secrets.IG_TOKEN_SD }}
           IG_TOKEN_FB: ${{ secrets.IG_TOKEN_FB }}
+          # Opcional, para token EAA (login unificado) que alcança mais de uma conta: id da conta por canal.
+          IG_ID_FM: ${{ vars.IG_ID_FM }}
+          IG_ID_AI: ${{ vars.IG_ID_AI }}
+          IG_ID_SD: ${{ vars.IG_ID_SD }}
+          IG_ID_FB: ${{ vars.IG_ID_FB }}
           CANAL: ${{ inputs.canal }}
           VIDEO: ${{ inputs.video }}
         run: |
