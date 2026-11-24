@@ -1,0 +1,90 @@
+# Posta os Reels da fila no Instagram. Copiado por scripts/postar.py sincronizar; edite em
+# C:\dev\stickman\postagem\github\postar.yml, não aqui.
+#
+# Segurança: enquanto a variável do repositório PUBLICAR não for "sim", as execuções automáticas
+# são SIMULAÇÃO. (Settings > Secrets and variables > Actions > Variables > New repository variable)
+name: Postar Reels
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # a cada 15 min; o GitHub pode atrasar alguns minutos
+  workflow_dispatch:
+    inputs:
+      de_verdade:
+        description: "Publicar de verdade (desmarcado = simulação)"
+        type: boolean
+        default: false
+      canal:
+        description: "Só este canal (fm, ai, sd, fb); vazio = tudo o que venceu"
+        required: false
+      video:
+        description: "Só este vídeo (número), junto com o canal"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: postar
+  cancel-in-progress: false
+
+jobs:
+  postar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TZ: America/Sao_Paulo
+      MIDIA_URL: https://raw.githubusercontent.com/${{ github.repository }}/midia
+      DE_VERDADE: ${{ (vars.PUBLICAR == 'sim' && github.event_name == 'schedule') || inputs.de_verdade == true }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          ref: midia
+          path: midia
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Postar o que venceu na fila
+        env:
+          IG_TOKEN_FM: ${{ secrets.IG_TOKEN_FM }}
+          IG_TOKEN_AI: ${{ secrets.IG_TOKEN_AI }}
+          IG_TOKEN_SD: ${{ secrets.IG_TOKEN_SD }}
+          IG_TOKEN_FB: ${{ secrets.IG_TOKEN_FB }}
+          CANAL: ${{ inputs.canal }}
+          VIDEO: ${{ inputs.video }}
+        run: |
+          FLAG=""
+          if [ "$DE_VERDADE" = "true" ]; then FLAG="--de-verdade --sem-perguntar"; fi
+          if [ -n "$CANAL" ] && [ -n "$VIDEO" ]; then FLAG="$FLAG --canal $CANAL --video $VIDEO"; fi
+          python postar.py --via instagram --pasta . --midia midia publicar $FLAG --saida-postados postados-agora.txt
+
+      - name: Registrar o que foi postado
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain postados.json)" ]; then
+            git add postados.json
+            git commit -m "postados: $(tr '\n' ' ' < postados-agora.txt 2>/dev/null)"
+            git pull --rebase --quiet
+            git push --quiet
+          fi
+
+      - name: Tirar da fila pública os vídeos já postados
+        if: always()
+        run: |
+          [ -s postados-agora.txt ] || exit 0
+          cd midia
+          while read -r chave; do
+            [ -n "$chave" ] && rm -rf -- "$chave"
+          done < ../postados-agora.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --quiet --orphan novo
+          git add -A
+          git commit --quiet --allow-empty -m "midia: restam $(find . -name video.mp4 -not -path './.git/*' | wc -l) vídeo(s)"
+          git push --quiet --force origin novo:midia
