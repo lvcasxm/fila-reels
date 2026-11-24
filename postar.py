@@ -473,8 +473,9 @@ def cmd_publicar(a):
     for p in fila:
         info = p["info"]
         print(f"■ {p['chave']}  (fila: {p['quando']:%d/%m %H:%M})")
-        print(f"    vídeo: {p['arquivo'].name}  {info.get('mb', 0):.1f} MB  {info.get('s', 0):.1f} s  "
-              f"{info.get('video', '')}  {info.get('audio', '')}")
+        detalhes = [f"{info['mb']:.1f} MB"] + ([f"{info['s']:.1f} s"] if "s" in info else []) + \
+                   [info[k] for k in ("video", "audio") if k in info]
+        print(f"    vídeo: {p['arquivo'].name}  {'  '.join(detalhes)}")
         if CFG["via"] == "instagram" and CFG["midia_url"]:
             print(f"    endereço público: {url_publica(p, 'video.mp4')}")
         print(f"    capa:  {rel(p['capa']) if p['capa'] else 'quadro de %d ms' % p['capa_ms']}")
