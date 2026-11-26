@@ -334,6 +334,21 @@ def contas_disponiveis(avisar=None):
                 if not avisar:
                     raise
                 avisar(canal, e)
+        # Trava contra token trocado: duas siglas apontando para a mesma conta não postam.
+        por_conta = {}
+        for canal, c in out.items():
+            por_conta.setdefault(c["ig"], []).append(canal)
+        for ig, canais in por_conta.items():
+            if len(canais) > 1:
+                siglas = ", ".join(f"IG_TOKEN_{sigla(k).upper()}" for k in canais)
+                e = Erro(f"{siglas} apontam para a mesma conta (@{out[canais[0]]['usuario']}); "
+                         "salve o token certo de cada canal")
+                for k in canais:
+                    del out[k]
+                    if avisar:
+                        avisar(k, e)
+                if not avisar:
+                    raise e
         return out
     tok = os.environ.get("META_TOKEN", "").strip()
     if not tok:
@@ -549,10 +564,11 @@ def cmd_publicar(a):
         # Simulação também confere os tokens (só leitura: nada é criado nem postado).
         if CFG["via"] == "instagram":
             contas = contas_disponiveis(avisar)
-            for canal in sorted({p["canal"] for p in fila}):
+            for canal in sorted({p["canal"] for p in fila} | set(contas)):
                 c = contas.get(canal)
                 if c:
-                    print(f"conta {sigla(canal)}: @{c['usuario']} (id {c['ig']}, via {c['host'].split('/')[2]}) OK")
+                    print(f"conta {sigla(canal)}: IG_TOKEN_{sigla(canal).upper()} -> @{c['usuario']} "
+                          f"(id {c['ig']}, via {c['host'].split('/')[2]}) OK")
                 elif canal not in falhas:
                     print(f"conta {sigla(canal)}: sem token (IG_TOKEN_{sigla(canal).upper()})")
             erros += len(falhas)
