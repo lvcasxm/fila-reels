@@ -1,0 +1,33 @@
+# Relógio da fila: dispara o "Postar Reels" no minuto de cada horário do fila.csv (veja relogio.py).
+# Um relógio por vez; cada um dura ~5h40 e inicia o seguinte. O cron abaixo é só reserva: se a
+# corrente cair, ele religa o relógio (com o atraso de sempre do cron do GitHub).
+name: Relógio da fila
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7 */3 * * *"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: relogio
+  cancel-in-progress: false
+
+jobs:
+  relogio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Esperar os horários e disparar a postagem
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python relogio.py
