@@ -7,7 +7,12 @@ name: Postar Reels
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # a cada 15 min; o GitHub pode atrasar alguns minutos
+    # O GitHub descartava quase todas as execuções de "*/15" (saíam a cada 6-8 h). Agora roda perto dos
+    # horários da fila (12h, 19h, 21h de Brasília = 15h, 22h, 0h UTC), com repescagens até 1h30 depois.
+    # Fora do horário mexa aqui e na regra do topo de postagem/fila.csv juntos.
+    - cron: "3,33 15,16 * * *"
+    - cron: "3,33 22,23 * * *"
+    - cron: "3,33 0,1 * * *"
   workflow_dispatch:
     inputs:
       de_verdade:
