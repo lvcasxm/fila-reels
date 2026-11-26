@@ -510,6 +510,15 @@ def cmd_publicar(a):
         except Erro as e:
             erros += 1
             print(f"ERRO em {sigla(item['canal'])} {item['video']}: {e}")
+    if not (a.canal or a.video):
+        # Um post por conta em cada execução: se o GitHub atrasar e vários horários vencerem juntos,
+        # eles saem um por execução, em vez de vários Reels seguidos na mesma conta.
+        primeiro = {}
+        for p in sorted(fila, key=lambda p: p["quando"]):
+            primeiro.setdefault(p["canal"], p)
+        adiados, fila = len(fila) - len(primeiro), list(primeiro.values())
+        if adiados:
+            print(f"{adiados} item(ns) vencido(s) ficam para a próxima execução (um post por conta por vez)\n")
     if not fila:
         print("nada para publicar agora.")
         sys.exit(1 if erros else 0)
